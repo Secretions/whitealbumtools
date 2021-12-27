@@ -7,7 +7,6 @@ from os.path import join
 from typing import BinaryIO
 
 
-# logging.basicConfig(filename='wa_extract.log', level=logging.DEBUG)
 logging.basicConfig(level=logging.INFO)
 
 
@@ -27,7 +26,6 @@ class LzssBuffer:
             self.d = bytearray(self.d_capacity)
             for i in range(0, self.d_capacity):
                 self.d[i] = input
-        logging.debug(f"Setting buffer offset {hex(self.d_pos)} to {hex(input)}")
         self.d[self.d_pos] = input
         self.d_pos += 1
         self.d_pos %= self.d_capacity
@@ -89,10 +87,8 @@ class Lzss:
         packed_size = int.from_bytes(f.read(4), "little")
         unpacked_size = int.from_bytes(f.read(4), "little")
 
-        logging.debug(f"packed_size: {packed_size} {hex(packed_size)}, unpacked_size: {unpacked_size} {hex(unpacked_size)}")
-
         m_input = f
-        m_output = bytearray(b"\x00" * unpacked_size)
+        m_output = bytearray(unpacked_size)
         m_size = packed_size
 
         if not unpacked_size or m_size <= 8:
@@ -112,13 +108,10 @@ class Lzss:
             ctl = int.from_bytes(m_input.read(1), "little")
             remaining -= 1
             bit = 1
-            logging.debug(f"Outer loop: {ctl}, {remaining}, {bit}")
             while remaining > 0 and bit != 0x100:
-                logging.debug(f"\tctl & bit: {ctl} & {bit} = {ctl & bit}")
                 if 0 != (ctl & bit):
                     b = int.from_bytes(m_input.read(1), "little")
                     remaining -= 1
-                    logging.debug(f"\tVerbatim: setting {hex(dst)} byte to {hex(b)}")
                     m_output[dst] = b
                     dst += 1
                     buf.input(b)
@@ -133,20 +126,14 @@ class Lzss:
                         remaining -= 1
                     repititions += 3
 
-                    logging.debug(f"look behind pos: {look_behind_pos}")
-                    logging.debug(f"repititions: {repititions}")
-
-                    logging.debug("\t\tDecompress loop")
-                    logging.debug(f"remaining: {remaining}")
                     count = repititions
                     offset = look_behind_pos % buf.d_capacity
                     while count != 0:
-                        if dst > len(m_output):
+                        if dst > unpacked_size:
                             break
                         v = buf.d[offset]
                         offset += 1
                         offset = offset % buf.d_capacity
-                        logging.debug(f"\t\tsetting {hex(dst)} byte to {hex(v)} from {hex(offset)}")
                         m_output[dst] = v
                         dst += 1
                         count -= 1
