@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import logging
 from os import makedirs
 from os.path import join
@@ -157,16 +158,40 @@ class Lzss:
         return m_output
 
 
-#lp = Leafpak("WAMES.pak")
-lp = Leafpak("WAEG.pak")
+def parse_args():
+    parser = argparse.ArgumentParser(description="White Album Extractor")
+    parser.add_argument("-p", "--pakfile", help=".pak filename to extract from", required=True)
+    parser.add_argument("-l", "--list", help="List contents of .pak file", action="store_true")
+    parser.add_argument("-x", "--extract", help="Extract files from .pak file", action="store_true")
+    parser.add_argument("-f", "--filename", help="Individual filename to extract")
+    parser.add_argument("-d", "--output-directory", help="Output directory for extracted files (will create)")
+    parser.add_argument("-o", "--output-filename", help="Output filename for extracted file (optional)")
+    return parser.parse_args()
 
-# print(lp.toc)
 
-# lp.extract_file("n2mes001.mes", output_path="out")
+def main():
+    args = parse_args()
+    if not args.list and not args.extract:
+        logging.error("Must specify either `--list` or `--extract`!")
+        exit(1)
 
-# exit(0)
-# Note: fails in way that creates multi-gig files on certain files
-# don't run until fixed
-for filename, _ in lp.toc.items():
-    print(f"Extracting {filename}...")
-    lp.extract_file(filename, output_path="out")
+    if args.output_filename and not args.filename:
+        logging.error("Can only specify `--output-filename` with `--filename`")
+
+    lp = Leafpak(args.pakfile)
+    logging.info(f"Loaded {args.pakfile}, {len(lp.toc)} files...")
+
+    if args.list:
+        for filename, entry in lp.toc.items():
+            print(f"* {filename} [{entry['size']}b], offset={entry['offset']}, encoded={entry['encoded']}")
+    elif args.extract:
+        if args.filename:
+            lp.extract_file(args.filename, args.output_directory, args.output_filename)
+        else:
+            for filename, _ in lp.toc.items():
+                print(f"Extracting {filename}...")
+                lp.extract_file(filename, args.output_directory)
+
+
+if __name__ == "__main__":
+    main()
