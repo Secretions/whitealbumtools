@@ -55,68 +55,72 @@ class Leafpak:
 
         makedirs(output_path, exist_ok=True)
         with open(self.pakfile, "rb") as f:
-            f.seek(self.toc[filename]["offset"])
-            packed_size = int.from_bytes(f.read(4), "little")
-            unpacked_size = int.from_bytes(f.read(4), "little")
-
-            print(f"packed_size: {packed_size} {hex(packed_size)}, unpacked_size: {unpacked_size} {hex(unpacked_size)}")
-
-            m_input = f
-            m_output = bytearray(b"\x00" * unpacked_size)
-            m_size = packed_size
-
-            buf = LzssBuffer()
-
-            dst = 0
-            remaining = m_size - 8
-
-            while remaining > 0:
-                ctl = int.from_bytes(m_input.read(1), "little")
-                remaining -= 1
-                bit = 1
-                # print(f"Outer loop: {ctl}, {remaining}, {bit}")
-                while remaining > 0 and bit != 0x100:
-                    print(f"\tctl & bit: {ctl} & {bit} = {ctl & bit}")
-                    if 0 != (ctl & bit):
-                        b = int.from_bytes(m_input.read(1), "little")
-                        remaining -= 1
-                        # print(f"\tVerbatim: setting {hex(dst)} byte to {hex(b)}")
-                        m_output[dst] = b
-                        dst += 1
-                        buf.input(b)
-                    else:
-                        tmp = int.from_bytes(m_input.read(2), "little")
-                        remaining -= 2
-                        look_behind_pos = tmp >> 4
-                        repititions = tmp & 0xf
-
-                        if repititions == 0xf:
-                            repititions = repititions + int.from_bytes(m_input.read(1), "little")
-                            remaining -= 1
-                        repititions += 3
-
-                        # print(f"look behind pos: {look_behind_pos}")
-                        # print(f"repititions: {repititions}")
-
-                        # print("\t\tDecompress loop")
-                        # print(f"remaining: {remaining}")
-                        count = repititions
-                        offset = look_behind_pos % buf.d_capacity
-                        while count != 0:
-                            if dst > len(m_output):
-                                break
-                            v = buf.d[offset]
-                            offset += 1
-                            offset = offset % buf.d_capacity
-                            # print(f"\t\tsetting {hex(dst)} byte to {hex(v)} from {hex(offset)}")
-                            m_output[dst] = v
-                            buf.input(v)
-                            dst += 1
-                            count -= 1
-                    bit <<= 1
+            decoded_file = self.lzss_decode(f, self.toc[filename]["offset"])
             print("writing the file")
             with open(output_filename, "wb") as o:
-                o.write(m_output)
+                o.write(decoded_file)
+
+    def lzss_decode(self, f: BinaryIO, start_offset: int = 0) -> bytearray:
+        f.seek(start_offset)
+        packed_size = int.from_bytes(f.read(4), "little")
+        unpacked_size = int.from_bytes(f.read(4), "little")
+
+        print(f"packed_size: {packed_size} {hex(packed_size)}, unpacked_size: {unpacked_size} {hex(unpacked_size)}")
+
+        m_input = f
+        m_output = bytearray(b"\x00" * unpacked_size)
+        m_size = packed_size
+
+        buf = LzssBuffer()
+
+        dst = 0
+        remaining = m_size - 8
+
+        while remaining > 0:
+            ctl = int.from_bytes(m_input.read(1), "little")
+            remaining -= 1
+            bit = 1
+            # print(f"Outer loop: {ctl}, {remaining}, {bit}")
+            while remaining > 0 and bit != 0x100:
+                print(f"\tctl & bit: {ctl} & {bit} = {ctl & bit}")
+                if 0 != (ctl & bit):
+                    b = int.from_bytes(m_input.read(1), "little")
+                    remaining -= 1
+                    # print(f"\tVerbatim: setting {hex(dst)} byte to {hex(b)}")
+                    m_output[dst] = b
+                    dst += 1
+                    buf.input(b)
+                else:
+                    tmp = int.from_bytes(m_input.read(2), "little")
+                    remaining -= 2
+                    look_behind_pos = tmp >> 4
+                    repititions = tmp & 0xf
+
+                    if repititions == 0xf:
+                        repititions = repititions + int.from_bytes(m_input.read(1), "little")
+                        remaining -= 1
+                    repititions += 3
+
+                    # print(f"look behind pos: {look_behind_pos}")
+                    # print(f"repititions: {repititions}")
+
+                    # print("\t\tDecompress loop")
+                    # print(f"remaining: {remaining}")
+                    count = repititions
+                    offset = look_behind_pos % buf.d_capacity
+                    while count != 0:
+                        if dst > len(m_output):
+                            break
+                        v = buf.d[offset]
+                        offset += 1
+                        offset = offset % buf.d_capacity
+                        # print(f"\t\tsetting {hex(dst)} byte to {hex(v)} from {hex(offset)}")
+                        m_output[dst] = v
+                        buf.input(v)
+                        dst += 1
+                        count -= 1
+                bit <<= 1
+        return m_output
 
 
 lp = Leafpak("WAMES.pak")
