@@ -2,8 +2,8 @@
 
 import argparse
 import logging
-from os import makedirs
-from os.path import join
+from os import makedirs, walk
+from os.path import basename, getsize, join
 from typing import BinaryIO
 
 
@@ -55,6 +55,40 @@ class Leafpak:
                     filename, entry = self._toc_entry(f)
                     self._toc[filename] = entry
         return self._toc
+
+    def create_file(self, filename: str, input_directory: str):
+        input_files = next(walk(input_directory), (None, None, []))[2]
+        with open(self.pakfile, "wb") as f:
+            toc_entries = {name: {"size": getsize(join(input_directory, name))} for name in sorted(input_files)}
+            entry_offset = 4
+            name_size = 16
+            attr_size = 4
+            entry_size = name_size + (attr_size*3)
+            data_offset = (len(toc_entries) * entry_size) + entry_offset
+            data_pos = data_offset
+            logging.info(f"Data offset: {data_offset}")
+            toc_count = len(toc_entries) + 1
+            f.write(toc_count.to_bytes(4, "little"))
+            c = 0 # iter
+            f.seek(data_pos)
+            for name, entry in toc_entries.items():
+                entry_pos = entry_offset + (entry_size*c)
+                size_pos = entry_pos + name_size
+                encoding_pos = size_pos + attr_size
+                offset_pos = encoding_pos + attr_size
+                encoding = 0
+                logging.info(f"{name}: [{entry['size']}]")
+                f.seek(entry_pos)
+                f.write(name.encode("ascii").ljust(16, b"\x00"))
+                f.write(entry["size"].to_bytes(4, "little"))
+                f.write(encoding.to_bytes(4, "little"))
+                f.write(data_pos.to_bytes(4, "little"))
+                with open(join(input_directory, name), "rb") as data_input:
+                    f.seek(data_pos)
+                    f.write(data_input.read())
+                data_pos += entry["size"]
+                c += 1
+
 
     def extract_file(self, filename: str, output_path: str = None, output_filename: str = None):
         output_path = output_path or "./"
@@ -150,27 +184,37 @@ def parse_args():
     parser.add_argument("-p", "--pakfile", help=".pak filename to extract from", required=True)
     parser.add_argument("-l", "--list", help="List contents of .pak file", action="store_true")
     parser.add_argument("-x", "--extract", help="Extract files from .pak file", action="store_true")
+    parser.add_argument("-c", "--create", help="Create .pak file", action="store_true")
     parser.add_argument("-f", "--filename", help="Individual filename to extract")
-    parser.add_argument("-d", "--output-directory", help="Output directory for extracted files (will create)")
+    parser.add_argument("-i", "--input-directory", help="Directory with files to create")
+    parser.add_argument("-d", "--output-directory", help="Output directory for extracted files (will create)", default="out")
     parser.add_argument("-o", "--output-filename", help="Output filename for extracted file (optional)")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    if not args.list and not args.extract:
-        logging.error("Must specify either `--list` or `--extract`!")
+    if not args.list and not args.extract and not args.create:
+        logging.error("Must specify either `--list`, `--create` or `--extract`!")
         exit(1)
 
     if args.output_filename and not args.filename:
-        logging.error("Can only specify `--output-filename` with `--filename`")
+        logging.error("Can only specify `--output-filename` with `--filename`!")
+        exit(1)
+
+    if args.create and not args.input_directory:
+        logging.error("Must specify `--input-directory` with `--create`!")
+        exit(1)
 
     lp = Leafpak(args.pakfile)
-    logging.info(f"Loaded {args.pakfile}, {len(lp.toc)} files...")
+    if not args.create:
+        logging.info(f"Loaded {args.pakfile}, {len(lp.toc)} files...")
 
     if args.list:
         for filename, entry in lp.toc.items():
             print(f"* {filename} [{entry['size']}b], offset={entry['offset']}, encoded={entry['encoded']}")
+    elif args.create:
+        lp.create_file(args.filename, args.input_directory)
     elif args.extract:
         if args.filename:
             lp.extract_file(args.filename, args.output_directory, args.output_filename)
